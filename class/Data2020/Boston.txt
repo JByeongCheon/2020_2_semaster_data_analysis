@@ -1,0 +1,107 @@
+from pyspark.ml.feature import *
+from pyspark.ml.regression import *
+from pyspark.sql.functions import *
+from pyspark.ml.evaluation import *
+
+lines = spark.read.text("data/housing.data")
+data= lines.select(
+    lines.value.substr(1,8).cast("float").alias("CRIM"),
+    lines.value.substr(9,7).cast("float").alias("ZN"),
+    lines.value.substr(16,8).cast("float").alias("INDUS"),
+    lines.value.substr(24,3).cast("float").alias("CHAS"),
+    lines.value.substr(27,8).cast("float").alias("NOX"),
+    lines.value.substr(35,8).cast("float").alias("RM"),
+    lines.value.substr(43,7).cast("float").alias("AGE"),
+    lines.value.substr(50,8).cast("float").alias("DIS"),
+    lines.value.substr(58,4).cast("float").alias("RAD"),
+    lines.value.substr(62,7).cast("float").alias("TAX"),
+    lines.value.substr(69,7).cast("float").alias("PTRATIO"),
+    lines.value.substr(76,7).cast("float").alias("B"),
+    lines.value.substr(83,7).cast("float").alias("LSTAT"),
+    lines.value.substr(90,7).cast("float").alias("MEDV"))
+data.show(5)
+#########################################################################################
+rtk = RegexTokenizer(inputCol="value", outputCol="values")
+rtkData = rtk.transform(lines).select("values")
+cols = ["values[" + str(x) + "]" for x in range(14)]
+
+for s in cols:
+  rtkData = rtkData.withColumn(s, expr(s).cast("float"))
+
+cols = ["CRIM", "ZN", "INDUS", "CHAS", "NOX", "RM", "AGE", "DIS", "RAD", "TAX", "PTRATION", "B", "LSTAT", "MEDV"]
+data = rtkData.drop("values").toDF(*cols)
+data.show(5)
+
+#########################################################################################
+formula = RFormula(formula = "MEDV ~ RM")
+df = formula.fit(data).transform(data)
+lr = LinearRegression()
+lrModel = lr.fit(df)
+
+lrModel.intercept
+lrModel.coefficients
+lrModel.summary.r2
+
+######################################################################################
+formula = RFormula(formula = "MEDV ~ RM + LSTAT ")
+df = formula.fit(data).transform(data)
+lr = LinearRegression()
+lrModel = lr.fit(df)
+
+lrModel.intercept
+lrModel.coefficients
+lrModel.summary.r2
+
+df.select(corr("RM", "LSTAT")).show()
+
+#########################################################################################
+formula = RFormula(formula = "MEDV ~ .")
+df = formula.fit(data).transform(data)
+
+train, test = df.randomSplit([0.8, 0.2], seed = 1)
+
+scaler = StandardScaler(inputCol="features", outputCol="scaledFeatures", withMean = True)
+scalerModel = scaler.fit(train)
+scaledTrain = scalerModel.transform(train)
+scaledTest = scalerModel.transform(test)
+
+#########################################################################################
+
+lr = LinearRegression(featuresCol = "scaledFeatures")
+lrModel = lr.fit(scaledTrain)
+
+lrModel.intercept
+lrModel.coefficients
+
+trainSummary = lrModel.summary
+trainSummary.residuals.show()
+trainSummary.meanSquaredError
+trainSummary.rootMeanSquaredError
+trainSummary.r2
+
+testSummary = lrModel.evaluate(scaledTest)
+testSummary.r2
+
+pred = lrModel.transform(scaledTest)
+pred.select("prediction", "label").show(5)
+evaluator = RegressionEvaluator(metricName="r2")
+evaluator.evaluate(pred)
+evaluator = RegressionEvaluator(metricName="rmse")
+evaluator.evaluate(pred)
+
+#########################################################################################
+dtr = DecisionTreeRegressor(maxDepth = 2)
+dtrModel = dtr.fit(train)
+print(dtrModel.toDebugString)
+dtrModel.featureImportances
+
+dtr = DecisionTreeRegressor()
+dtrModel = dtr.fit(train)
+pred = dtrModel.transform(test)
+evaluator = RegressionEvaluator(metricName="r2")
+evaluator.evaluate(pred)
+
+pred.select("label", "prediction").show()
+
+
+
